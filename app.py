@@ -1,11 +1,13 @@
+# app.py
+
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.figure_factory as ff
 from dash import Dash, dcc, html, Input, Output
 import dash_bootstrap_components as dbc
-from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.model_selection import train_test_split
+import joblib
+import os
 from sklearn.metrics import (
     accuracy_score,
     recall_score,
@@ -17,7 +19,7 @@ from sklearn.metrics import (
     roc_curve,
 )
 
-# Importação dos Modelos
+# Importação dos Modelos (necessário para carregar as classes)
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import (
@@ -36,76 +38,60 @@ from sklearn.discriminant_analysis import (
 from sklearn.neural_network import MLPClassifier
 from lightgbm import LGBMClassifier
 from xgboost import XGBClassifier
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 
-# --- Carregamento e Pré-processamento dos Dados ---
-def preprocess_data(train_path, test_path):
-    # Carregar dados
-    telcom = pd.read_csv(train_path)
-    telcom_test = pd.read_csv(test_path)
+# --- Carregamento de Dados e Objetos Pré-treinados ---
+# Carregar os transformadores e a lista de colunas da pasta 'data'
+try:
+    std = joblib.load('data/scaler.pkl')
+    le = joblib.load('data/label_encoder.pkl')
+    cols = joblib.load('data/features.pkl')
+except FileNotFoundError:
+    print("Erro: Arquivos de pré-processamento não encontrados. Certifique-se de ter executado 'train_models.py' primeiro.")
+    exit()
+
+# Carregar os dados brutos e aplicar o pré-processamento salvo
+telcom = pd.read_csv('dataset/churn-bigml-80.csv')
+telcom_test = pd.read_csv('dataset/churn-bigml-20.csv')
     
-    # Remover colunas correlacionadas e desnecessárias
+def preprocess_data_for_app(df):
+    """Aplica as transformações salvas nos dados brutos."""
     col_to_drop = [
         'State', 'Area code', 'Total day charge', 'Total eve charge',
         'Total night charge', 'Total intl charge'
     ]
-    telcom = telcom.drop(columns=col_to_drop, axis=1)
-    telcom_test = telcom_test.drop(columns=col_to_drop, axis=1)
+    df = df.drop(columns=col_to_drop, axis=1)
 
-    # --- Pré-processamento ---
-    # Colunas binárias com 2 valores
-    bin_cols = telcom.nunique()[telcom.nunique() == 2].keys().tolist()
-    bin_cols = [col for col in bin_cols if col != 'Churn']
-    
-    # Label encoding das colunas binárias
-    le = LabelEncoder()
+    bin_cols = [col for col in df.columns if df[col].nunique() == 2 and col != 'Churn']
     for col in bin_cols:
-        telcom[col] = le.fit_transform(telcom[col])
-        telcom_test[col] = le.transform(telcom_test[col])
+        df[col] = le.transform(df[col])
 
-    # Escala das colunas numéricas
-    num_cols = [col for col in telcom.columns if telcom[col].dtype in ['float64', 'int64'] and col not in bin_cols + ['Churn']]
-    std = StandardScaler()
-    telcom[num_cols] = std.fit_transform(telcom[num_cols])
-    telcom_test[num_cols] = std.transform(telcom_test[num_cols])
-    
-    # Divisão dos dados
-    target_col = ['Churn']
-    cols = [col for col in telcom.columns if col not in target_col]
-    
-    X_train, X_test, y_train, y_test = train_test_split(
-        telcom[cols], telcom[target_col], test_size=0.25, random_state=111
-    )
-    
-    return telcom, telcom_test, X_train, X_test, y_train, y_test, cols
+    num_cols = [col for col in df.columns if df[col].dtype in ['float64', 'int64'] and col not in bin_cols + ['Churn']]
+    df[num_cols] = std.transform(df[num_cols])
+    return df
 
-telcom, telcom_test, X_train, X_test, y_train, y_test, cols = preprocess_data(
-    'churn-bigml-80.csv', 'churn-bigml-20.csv'
-)
+telcom = preprocess_data_for_app(telcom)
+telcom_test = preprocess_data_for_app(telcom_test)
 
-# --- Treinamento dos Modelos ---
-models = {
-    'Regressão Logística': LogisticRegression(solver='liblinear', random_state=42),
-    'Árvore de Decisão': DecisionTreeClassifier(max_depth=9, random_state=42),
-    'Classificador KNN': KNeighborsClassifier(),
-    'Random Forest': RandomForestClassifier(n_estimators=100, max_depth=9, random_state=42),
-    'Naive Bayes Gaussiano': GaussianNB(),
-    'SVM (RBF)': SVC(C=10.0, gamma=0.1, probability=True, random_state=42),
-    'Classificador LGBM': LGBMClassifier(learning_rate=0.5, max_depth=7, n_estimators=100, random_state=42),
-    'Classificador XGBoost': XGBClassifier(learning_rate=0.9, max_depth=7, n_estimators=100, random_state=42),
-    'AdaBoost': AdaBoostClassifier(random_state=42),
-    'Gradient Boosting': GradientBoostingClassifier(random_state=42),
-    'LDA': LinearDiscriminantAnalysis(),
-    'QDA': QuadraticDiscriminantAnalysis(),
-    'Classificador MLP': MLPClassifier(max_iter=1000, random_state=42),
-    'Classificador Bagging': BaggingClassifier(random_state=42),
-}
+# Separar os dados para avaliação
+y_test = telcom[['Churn']]
+X_test = telcom[cols]
 
-# Treinar todos os modelos e armazenar os resultados
+# --- Carregar os Modelos Treinados ---
+print("Carregando modelos treinados...")
 model_results = {}
-for name, model in models.items():
-    model.fit(X_train, y_train.values.ravel())
-    model_results[name] = model
+try:
+    for filename in os.listdir('models'):
+        if filename.endswith('.pkl'):
+            # Transforma o nome do arquivo para o formato de exibição
+            model_name = filename.replace('.pkl', '').replace('_', ' ')
+            model_results[model_name] = joblib.load(f'models/{filename}')
+    print("Modelos carregados com sucesso!")
+except FileNotFoundError:
+    print("Erro: Pasta 'models' não encontrada. Certifique-se de ter executado 'train_models.py' primeiro.")
+    exit()
 
+# --- Definição das Métricas ---
 def get_metrics_df(X, y):
     df_rows = []
     for name, model in model_results.items():
@@ -115,7 +101,7 @@ def get_metrics_df(X, y):
             roc_auc = roc_auc_score(y, probabilities)
         except (AttributeError, IndexError):
             roc_auc = "N/A"
-
+        
         df_rows.append({
             'Modelo': name,
             'Acurácia': accuracy_score(y, predictions),
@@ -143,7 +129,7 @@ header = dbc.Navbar(
                     dbc.NavbarBrand("Previsão de Cancelamento (Churn) de Clientes de Telecom", class_name="fw-bold text-wrap", style={"color": "black"}),
                 ], className="d-flex align-items-center"
             ),
-            dbc.Badge("Painel Interativo", color="primary", className="ms-auto")
+            dbc.Badge("Dashboard", color="primary", className="ms-auto")
         ]
     ),
     color="light",
@@ -160,7 +146,7 @@ ask_tab = dcc.Markdown(
 
     **Partes Interessadas**: Os principais tomadores de decisão que usarão este painel são **Marketing** e **Serviço ao Cliente**. Eles precisam dessas informações para planejar campanhas direcionadas e estratégias de retenção. A liderança executiva também se beneficia de uma visão de alto nível de nossos esforços de retenção de clientes.
 
-    **Entregáveis**: O produto final é este painel interativo, que oferece um passo a passo claro de nossa análise e apresenta as principais descobertas e recomendações.
+    **Entregáveis**: O produto final é este dashboard, que oferece um passo a passo claro de nossa análise e apresenta as principais descobertas e recomendações.
     """, className="p-4"
 )
 
