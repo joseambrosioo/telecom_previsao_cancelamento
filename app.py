@@ -126,7 +126,7 @@ header = dbc.Navbar(
             html.Div(
                 [
                     html.Span("☎️", className="me-2"),
-                    dbc.NavbarBrand("Previsão de Cancelamento (Churn) de Clientes de Telecom", class_name="fw-bold text-wrap", style={"color": "black"}),
+                    dbc.NavbarBrand("Previsão de Cancelamento (Churn) de Clientes de Empresa de Telecomunicações", class_name="fw-bold text-wrap", style={"color": "black"}),
                 ], className="d-flex align-items-center"
             ),
             dbc.Badge("Dashboard", color="primary", className="ms-auto")
