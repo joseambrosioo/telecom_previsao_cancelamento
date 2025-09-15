@@ -118,6 +118,7 @@ metrics_test = get_metrics_df(telcom_test[cols], telcom_test[['Churn']])
 
 # --- Layout do Painel ---
 app = Dash(__name__, external_stylesheets=[dbc.themes.FLATLY])
+app.title = "Previsão de Cancelamento (Churn) de Clientes de Empresa de Telecomunicações"
 server = app.server
 
 header = dbc.Navbar(
@@ -212,9 +213,20 @@ analyze_tab = html.Div(
                 html.Div(
                     children=[
                         html.H5("Distribuição e Correlações do Churn", className="mt-4"),
-                        html.P(
-                            ["O gráfico de pizza abaixo mostra que nossos dados estão ", html.B("desbalanceados"), "—uma pequena porcentagem de clientes cancelou. Isso é importante porque significa que um modelo simples poderia obter uma alta pontuação de acurácia apenas prevendo que ninguém nunca cancelará. É por isso que precisamos de métricas de avaliação mais avançadas."]
-                        ),
+                        html.P([
+                            "O gráfico de pizza abaixo mostra que nossos dados estão ",
+                            html.B("desbalanceados"),
+                            " — uma pequena porcentagem de clientes ",
+                            html.B("cancelou"), " ",
+                            html.B("(14.6%)"),
+                            ". Isso é importante porque significa que um ",
+                            html.B("modelo simples"),
+                            " poderia obter uma alta pontuação de ",
+                            html.B("acurácia"),
+                            " apenas prevendo que ninguém nunca cancelará. É por isso que precisamos de ",
+                            html.B("métricas de avaliação mais avançadas"),
+                            "."
+                        ]),
                         dbc.Row([
                             dbc.Col(dcc.Graph(id="churn-pie-chart",
                                              figure=go.Figure(
@@ -226,11 +238,59 @@ analyze_tab = html.Div(
                                              )), md=6),
                             dbc.Col(dcc.Graph(id="correlation-matrix"), md=6),
                         ]),
-                        html.P(
-                            ["A ", html.B("Matriz de Correlação"), " à direita mostra o quão fortemente cada característica se relaciona com as outras. Uma cor escura indica uma relação forte. A principal conclusão é que características como minutos de chamada e chamadas para o serviço de atendimento ao cliente estão correlacionadas com o churn, o que confirma nossa intuição."]
-                        ),
+                        html.P([
+                            "A ",
+                            html.B("Matriz de Correlação"),
+                            " acima mostra o quão fortemente cada ",
+                            html.B("característica"),
+                            " se relaciona com as outras. Quanto mais ",
+                            html.B("escura"),
+                            " for a cor da célula de uma característica na interseção com o ",
+                            html.B("churn"),
+                            ", maior a ",
+                            html.B("relação"),
+                            " entre essa característica e o churn. Quanto mais ",
+                            html.B("clara"),
+                            " for a cor da célula, menor a ",
+                            html.B("relação"),
+                            ". A principal conclusão é que características como ",
+                            html.B("minutos de chamada, plano internacional,"),
+                            " e ",
+                            html.B("chamadas para o serviço de atendimento ao cliente"),
+                            " estão correlacionadas com o ",
+                            html.B("churn"),
+                            "."
+                        ]),
                         html.H5("Visualização das Características", className="mt-4"),
-                        html.P("Este gráfico visualiza os dados usando duas características chave: total de minutos diurnos e total de minutos noturnos. Separamos esses períodos porque o comportamento do cliente e os motivos para o churn podem ser diferentes ao longo do dia. Um cliente que faz muitas chamadas longas durante o dia pode ser um usuário de negócios, enquanto um cliente com chamadas noturnas longas pode ser um usuário familiar. Esses diferentes comportamentos podem ter diferentes razões para o churn. Um modelo que olha apenas o total de minutos não capturaria essas nuances."),
+                        html.P([
+                            "Este gráfico visualiza os dados usando duas ",
+                            html.B("características chave"),
+                            ": ",
+                            html.B("total de minutos diurnos"),
+                            " e ",
+                            html.B("total de minutos noturnos"),
+                            ". Separamos esses períodos porque o ",
+                            html.B("comportamento do cliente"),
+                            " e os ",
+                            html.B("motivos para o churn"),
+                            " podem ser diferentes ao longo do dia. Um cliente que faz muitas ",
+                            html.B("chamadas longas durante o dia"),
+                            " pode ser um ",
+                            html.B("usuário de negócios"),
+                            ", enquanto um cliente com ",
+                            html.B("chamadas noturnas longas"),
+                            " pode ser um ",
+                            html.B("usuário familiar"),
+                            ". Esses diferentes comportamentos podem ter diferentes ",
+                            html.B("razões para o churn"),
+                            ". Um ",
+                            html.B("modelo"),
+                            " que olha apenas o ",
+                            html.B("total de minutos"),
+                            " não capturaria essas ",
+                            html.B("nuances"),
+                            "."
+                        ]),
                         dbc.Row([
                             dbc.Col(dcc.Graph(
                                 id="day-eve-minutes-plot",
