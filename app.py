@@ -215,8 +215,14 @@ for col in telcom_raw.columns:
     col_type = telcom_raw[col].dtype
     if pd.api.types.is_numeric_dtype(col_type):
         columns_with_types.append({"name": col, "id": col, "type": "numeric"})
+    elif pd.api.types.is_bool_dtype(col_type):
+        columns_with_types.append({"name": col, "id": col, "type": "text"})
     else:
         columns_with_types.append({"name": col, "id": col})
+
+# Converte a coluna 'Churn' para string para exibição e filtragem correta
+telcom_raw_display = telcom_raw.head(10).copy()
+telcom_raw_display['Churn'] = telcom_raw_display['Churn'].astype(str)
 
 prepare_tab = html.Div(
     children=[
@@ -259,12 +265,16 @@ prepare_tab = html.Div(
                 ),
             ]
         ),
+        html.H4("Resumo Estatístico", className="mt-4"),
+        html.P("Esta tabela fornece uma visão geral estatística rápida das características. Note a relação linear perfeita entre minutos e cobranças para diferentes tipos de chamada. Para evitar multicolinearidade em nossos modelos, removemos as colunas relacionadas a cobranças."),
+        dbc.Table.from_dataframe(telcom.describe().T.reset_index().rename(columns={'index': 'característica'}).round(2),
+                                 striped=True, bordered=True, hover=True),
         # Adiciona a tabela de amostra do dataset
         html.H5("Amostra do Dataset Original (Primeiras 10 Linhas)", className="mt-4"),
         dash_table.DataTable(
             id='sample-table',
             columns=columns_with_types, # Usa a nova lista de colunas com tipos definidos
-            data=telcom_raw.head(10).to_dict('records'),
+            data=telcom_raw_display.to_dict('records'),
             sort_action="native",
             filter_action="native",
             page_action="none",
@@ -283,10 +293,6 @@ prepare_tab = html.Div(
                 'textOverflow': 'ellipsis',
             },
         ),
-        html.H4("Resumo Estatístico", className="mt-4"),
-        html.P("Esta tabela fornece uma visão geral estatística rápida das características. Note a relação linear perfeita entre minutos e cobranças para diferentes tipos de chamada. Para evitar multicolinearidade em nossos modelos, removemos as colunas relacionadas a cobranças."),
-        dbc.Table.from_dataframe(telcom.describe().T.reset_index().rename(columns={'index': 'característica'}).round(2),
-                                 striped=True, bordered=True, hover=True),
     ], className="p-4"
 )
 
