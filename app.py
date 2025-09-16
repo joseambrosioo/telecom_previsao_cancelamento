@@ -218,14 +218,14 @@ prepare_tab = html.Div(
         html.P("Antes de podermos construir um modelo preditivo, precisamos entender e limpar nossos dados."),
         html.H5("Fonte de Dados"),
         html.P(
-            ["Usamos um conjunto de dados padrão de churn de telecom, dividido em um ", html.B("conjunto de treinamento"), " (80% dos dados) para construir nossos modelos e um ", html.B("conjunto de teste"), " separado (20%) para verificar se nossos modelos funcionam em novos dados, nunca vistos."]
+            ["Usamos um dataset padrão de churn de telecom, dividido em um ", html.B("conjunto de treinamento"), " (80% dos dados) para construir nossos modelos e um ", html.B("conjunto de teste"), " separado (20%) para verificar se nossos modelos funcionam em novos dados, nunca vistos."]
         ),
         dbc.Row(
             [
                 dbc.Col(
                     dbc.Card(
                         [
-                            dbc.CardHeader("Conjunto de Dados de Treinamento"),
+                            dbc.CardHeader("Dataset de Treinamento"),
                             dbc.CardBody(
                                 [
                                     html.P(f"Linhas: {telcom.shape[0]}"),
@@ -238,7 +238,7 @@ prepare_tab = html.Div(
                 dbc.Col(
                     dbc.Card(
                         [
-                            dbc.CardHeader("Conjunto de Dados de Teste"),
+                            dbc.CardHeader("Dataset de Teste"),
                             dbc.CardBody(
                                 [
                                     html.P(f"Linhas: {telcom_test.shape[0]}"),
