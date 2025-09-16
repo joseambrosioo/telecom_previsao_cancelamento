@@ -17,6 +17,7 @@ from sklearn.metrics import (
     cohen_kappa_score,
     confusion_matrix,
     roc_curve,
+    auc,
 )
 
 # Importação dos Modelos (necessário para carregar as classes)
@@ -53,7 +54,7 @@ except FileNotFoundError:
 # Carregar os dados brutos e aplicar o pré-processamento salvo
 telcom = pd.read_csv('dataset/churn-bigml-80.csv')
 telcom_test = pd.read_csv('dataset/churn-bigml-20.csv')
-    
+
 def preprocess_data_for_app(df):
     """Aplica as transformações salvas nos dados brutos."""
     col_to_drop = [
@@ -115,6 +116,61 @@ def get_metrics_df(X, y):
 
 metrics_train = get_metrics_df(X_test, y_test)
 metrics_test = get_metrics_df(telcom_test[cols], telcom_test[['Churn']])
+
+
+# --- Funções para gerar textos estáticos e dinâmicos ---
+def get_best_and_worst_models(df, metric='F1-Score'):
+    """Encontra os 2 melhores e 2 piores modelos para uma métrica específica."""
+    df_sorted = df.sort_values(by=metric, ascending=False)
+    best_2 = df_sorted.head(2).reset_index(drop=True)
+    worst_2 = df_sorted.tail(2).reset_index(drop=True)
+    return best_2, worst_2
+
+def generate_static_metrics_summary(df, data_type):
+    best_models_f1, worst_models_f1 = get_best_and_worst_models(df, 'F1-Score')
+    best_model_name_f1 = best_models_f1.loc[0, 'Modelo']
+    best_model_f1_score = best_models_f1.loc[0, 'F1-Score']
+    second_best_model_name_f1 = best_models_f1.loc[1, 'Modelo']
+    second_best_f1_score = best_models_f1.loc[1, 'F1-Score']
+
+    return html.P([
+        f"Avaliamos o desempenho dos modelos no conjunto de {data_type} usando métricas-chave. ",
+        "Os modelos de melhor desempenho foram ", html.B(f"{best_model_name_f1}"),
+        " com um ", html.B(f"F1-Score de {best_model_f1_score}"), ", seguido por ",
+        html.B(f"{second_best_model_name_f1}"), " com um ", html.B(f"F1-Score de {second_best_f1_score}"),
+        ". Em geral, esses modelos avançados de árvore mostraram resultados excepcionais."
+    ])
+
+def generate_static_confusion_summary(df, data_type):
+    best_models_acc, _ = get_best_and_worst_models(df, 'Acurácia')
+    best_model = model_results[best_models_acc.loc[0, 'Modelo']]
+    y_pred = best_model.predict(telcom_test[cols]) if data_type == 'teste' else best_model.predict(X_test)
+    y_actual = telcom_test['Churn'] if data_type == 'teste' else y_test
+    cm = confusion_matrix(y_actual, y_pred)
+    tn, fp, fn, tp = cm.ravel()
+    
+    return html.P([
+        "Uma análise detalhada da matriz de confusão para o modelo de melhor desempenho, ",
+        html.B(best_models_acc.loc[0, 'Modelo']), f" (acurácia de {best_models_acc.loc[0, 'Acurácia']}), revela sua capacidade de prever com precisão. ",
+        f"Ele identificou corretamente ", html.B(f"{tp} Verdadeiros Positivos"),
+        " e ", html.B(f"{tn} Verdadeiros Negativos"), ", enquanto o número de erros (falsos positivos e negativos) foi minimizado. ",
+        "Isso demonstra um equilíbrio ideal entre capturar o churn e evitar falsos alarmes."
+    ])
+
+def generate_static_roc_summary(df, data_type):
+    best_models_roc, _ = get_best_and_worst_models(df, 'ROC-AUC')
+    best_model_name = best_models_roc.loc[0, 'Modelo']
+    best_model_auc = best_models_roc.loc[0, 'ROC-AUC']
+    second_best_model_name = best_models_roc.loc[1, 'Modelo']
+    second_best_auc = best_models_roc.loc[1, 'ROC-AUC']
+
+    return html.P([
+        "A curva ROC avalia a capacidade de diferenciação do modelo. Os modelos com os maiores valores de Área Sob a Curva (AUC) são os melhores. ",
+        "Os melhores modelos para essa métrica foram ", html.B(f"{best_model_name}"), " com um ",
+        html.B(f"AUC de {best_model_auc}"), ", e ", html.B(f"{second_best_model_name}"),
+        f" com um ", html.B(f"AUC de {second_best_auc}"),
+        ". Ambas as pontuações, próximas de 1.00, indicam que esses modelos são excelentes em distinguir clientes que cancelam de clientes que não cancelam."
+    ])
 
 # --- Layout do Painel ---
 app = Dash(__name__, external_stylesheets=[dbc.themes.FLATLY])
@@ -214,11 +270,12 @@ analyze_tab = html.Div(
                     children=[
                         html.H5("Distribuição e Correlações do Churn", className="mt-4"),
                         html.P([
-                            "O gráfico de pizza abaixo mostra que nossos dados estão ",
-                            html.B("desbalanceados"),
+                            "O gráfico de pizza abaixo mostra que nossos dados ",
+                            html.B("não"), " estão ",
+                            html.B("balanceados"),
                             " — uma pequena porcentagem de clientes ",
-                            html.B("cancelou"), " ",
-                            html.B("(14.6%)"),
+                            html.B("cancelou,"), " apenas ",
+                            html.B("14.6%"),
                             ". Isso é importante porque significa que um ",
                             html.B("modelo simples"),
                             " poderia obter uma alta pontuação de ",
@@ -229,13 +286,13 @@ analyze_tab = html.Div(
                         ]),
                         dbc.Row([
                             dbc.Col(dcc.Graph(id="churn-pie-chart",
-                                             figure=go.Figure(
-                                                 data=[go.Pie(labels=telcom["Churn"].value_counts().keys().tolist(),
-                                                              values=telcom["Churn"].value_counts().values.tolist(),
-                                                              marker=dict(colors=['#1f77b4', '#ff7f0e'], line=dict(color="white", width=1.3)),
-                                                              hoverinfo="label+percent", hole=0.5)],
-                                                 layout=go.Layout(title="Distribuição de Churn de Clientes", height=400, margin=dict(t=50, b=50))
-                                             )), md=6),
+                                            figure=go.Figure(
+                                                data=[go.Pie(labels=telcom["Churn"].value_counts().keys().tolist(),
+                                                                values=telcom["Churn"].value_counts().values.tolist(),
+                                                                marker=dict(colors=['#1f77b4', '#ff7f0e'], line=dict(color="white", width=1.3)),
+                                                                hoverinfo="label+percent", hole=0.5)],
+                                                layout=go.Layout(title="Distribuição de Churn de Clientes", height=400, margin=dict(t=50, b=50))
+                                            )), md=6),
                             dbc.Col(dcc.Graph(id="correlation-matrix"), md=6),
                         ]),
                         html.P([
@@ -296,11 +353,11 @@ analyze_tab = html.Div(
                                 id="day-eve-minutes-plot",
                                 figure=go.Figure(
                                     data=go.Scatter(x=telcom['Total day minutes'], y=telcom['Total eve minutes'],
-                                                     mode='markers', marker_color=telcom['Churn'], showlegend=False),
+                                                    mode='markers', marker_color=telcom['Churn'], showlegend=False),
                                     layout=go.Layout(title="Total de Minutos Diurnos vs. Total de Minutos Noturnos",
-                                                     xaxis_title="Total de Minutos Diurnos (Escalado)",
-                                                     yaxis_title="Total de Minutos Noturnos (Escalado)",
-                                                     height=400, margin=dict(t=50, b=50))
+                                                    xaxis_title="Total de Minutos Diurnos (Escalado)",
+                                                    yaxis_title="Total de Minutos Noturnos (Escalado)",
+                                                    height=400, margin=dict(t=50, b=50))
                                 ))),
                         ]),
                     ], className="p-4"
@@ -312,19 +369,57 @@ analyze_tab = html.Div(
                         html.H5("Desempenho do Modelo nos Dados de Treinamento", className="mt-4"),
                         html.P("Treinamos uma variedade de modelos de aprendizado de máquina para ver qual deles tem o melhor desempenho."),
                         html.P(
-                            ["• ", html.B("O Problema com a Acurácia"), ": Para nossos dados desbalanceados, a ", html.B("Acurácia"), " (a porcentagem de previsões corretas) não é a melhor métrica. Um modelo que sempre prevê 'sem churn' poderia ter 85% de acurácia, mas seria inútil para identificar clientes em risco."]
+                            [html.B("O Problema com a Acurácia"), ": Para nossos dados não balanceados, a ", html.B("Acurácia"), " (a porcentagem de previsões corretas) não é a melhor métrica. Um modelo que sempre prevê 'sem churn' poderia ter 85% de acurácia, mas seria inútil para identificar clientes em risco."]
                         ),
                         html.P(
-                            ["• ", html.B("Métricas Chave"), ": Focamos em um conjunto mais completo de métricas: ", html.B("Revocação"), " (quantos clientes que cancelaram nós pegamos?), ", html.B("Precisão"), " (daqueles que marcamos como churners, quantos estavam corretos?), ", html.B("F1-Score"), " (um equilíbrio de ambos), e ", html.B("ROC-AUC"), " (o quão bem o modelo separa os clientes que cancelam dos que não cancelam)."]
+                            [html.B("Métricas Chave"), ": Focamos em um conjunto mais completo de métricas:",
+                            html.Ul([
+                                html.Li([html.B("Revocação"), " – quantos clientes que cancelaram nós conseguimos identificar?"]),
+                                html.Li([html.B("Precisão"), " – daqueles que marcamos como churners, quantos estavam corretos?"]),
+                                html.Li([html.B("F1-Score"), " – um equilíbrio entre Precisão e Revocação."]),
+                                html.Li([html.B("ROC-AUC"), " – o quão bem o modelo separa os clientes que cancelam dos que não cancelam."])
+                            ])
+                            ]
                         ),
+                        generate_static_metrics_summary(metrics_train, 'treinamento'),
                         dbc.Row([dbc.Col(dcc.Graph(id="train-metrics-bar"), md=12)]),
-                        html.P(
-                            ["Nossa análise mostra que ", html.B("LightGBM"), " e ", html.B("XGBoost"), ", ambos tipos de modelos avançados baseados em árvores, superaram significativamente os outros. Eles alcançaram altas pontuações em todas as métricas, provando que são excelentes na identificação do churn."]
+                        html.Hr(),
+                        html.H5("Matriz de Confusão e Curva ROC", className="mt-4"),
+                        html.H6("Matriz de Confusão", className="mt-4"),
+                        html.P([
+                            "A matriz de confusão é uma tabela que divide as previsões do nosso modelo em quatro categorias:",
+                            html.Ul([
+                                html.Li([html.B("Verdadeiros Positivos (VP):"), " Clientes que o modelo previu corretamente que iriam cancelar."]),
+                                html.Li([html.B("Verdadeiros Negativos (VN):"), " Clientes que o modelo previu corretamente que não iriam cancelar."]),
+                                html.Li([html.B("Falsos Positivos (FP):"), " Clientes que o modelo previu incorretamente que iriam cancelar (Erro Tipo I). Isso pode levar a esforços de retenção desnecessários."]),
+                                html.Li([html.B("Falsos Negativos (FN):"), " Clientes que iriam cancelar, mas que o modelo não identificou (Erro Tipo II). Esta é a categoria mais custosa, pois representa a perda de um cliente."])
+                            ])
+                        ]),
+                        generate_static_confusion_summary(metrics_train, 'treinamento'),
+                        html.H6("Curva ROC (Receiver Operating Characteristic)", className="mt-4"),
+                        html.P([
+                            "A curva ROC plota a ",
+                            html.B("Taxa de Verdadeiros Positivos"),
+                            " em relação à ",
+                            html.B("Taxa de Falsos Positivos"),
+                            ". Quanto mais próxima a curva estiver do canto superior esquerdo, melhor o modelo diferencia entre as duas classes (churn e não-churn). A Área Sob a Curva (AUC) fornece uma única métrica para resumir o desempenho do modelo.",
+                        ]),
+                        generate_static_roc_summary(metrics_train, 'treinamento'),
+                        html.P("Selecione um modelo para visualizar as métricas, Matriz de Confusão e a Curva ROC (Treinamento):"),
+                        dcc.Dropdown(
+                            id='model-selector-train',
+                            options=[{'label': name, 'value': name} for name in model_results.keys()],
+                            value='Classificador LGBM',
+                            clearable=False,
                         ),
+                        html.Div(id='selected-train-metrics-summary'),
+                        html.Div(id='selected-train-confusion-summary'),
                         dbc.Row([
                             dbc.Col(dcc.Graph(id="train-confusion-matrix"), md=6),
                             dbc.Col(dcc.Graph(id="train-roc-curve"), md=6),
                         ]),
+                        html.Div(id='selected-train-roc-summary'),
+                        html.Hr(),
                         html.H5("Importância das Características (para modelos baseados em árvores)", className="mt-4"),
                         html.P("Este gráfico classifica as características com base em quanto elas contribuíram para a previsão do modelo. As duas características mais importantes foram `Total day minutes` e `International plan`. Isso nos dá um ponto de partida claro para nossas recomendações."),
                         dcc.Dropdown(
@@ -336,6 +431,50 @@ analyze_tab = html.Div(
                     ], className="p-4"
                 )
             ]),
+            # dbc.Tab(label="Desempenho do Modelo (Teste)", children=[
+            #     html.Div(
+            #         children=[
+            #             html.H5("Desempenho do Modelo nos Dados de Teste", className="mt-4"),
+            #             html.P(
+            #                 ["Testamos nossos principais modelos nos dados não vistos para garantir que não estão com ", html.B("overfitting"), " (memorizando os dados de treinamento em vez de aprender padrões gerais). O desempenho permaneceu alto, confirmando que os modelos são confiáveis e funcionarão bem em um cenário real."]
+            #             ),
+            #             generate_static_metrics_summary(metrics_test, 'teste'),
+            #             dbc.Row([dbc.Col(dcc.Graph(id="test-metrics-bar"), md=12)]),
+            #             html.P([
+            #                 "A matriz de confusão é uma tabela que divide as previsões do nosso modelo em quatro categorias:",
+            #                 html.Ul([
+            #                     html.Li([html.B("Verdadeiros Positivos (VP):"), " Clientes que o modelo previu corretamente que iriam cancelar."]),
+            #                     html.Li([html.B("Verdadeiros Negativos (VN):"), " Clientes que o modelo previu corretamente que não iriam cancelar."]),
+            #                     html.Li([html.B("Falsos Positivos (FP):"), " Clientes que o modelo previu incorretamente que iriam cancelar (Erro Tipo I). Isso pode levar a esforços de retenção desnecessários."]),
+            #                     html.Li([html.B("Falsos Negativos (FN):"), " Clientes que iriam cancelar, mas que o modelo não identificou (Erro Tipo II). Esta é a categoria mais custosa, pois representa a perda de um cliente."])
+            #                 ])
+            #             ]),
+            #             generate_static_confusion_summary(metrics_test, 'teste'),
+            #             html.H6("Curva ROC (Receiver Operating Characteristic)", className="mt-4"),
+            #             html.P([
+            #                 "A curva ROC plota a ",
+            #                 html.B("Taxa de Verdadeiros Positivos"),
+            #                 " em relação à ",
+            #                 html.B("Taxa de Falsos Positivos"),
+            #                 ". Quanto mais próxima a curva estiver do canto superior esquerdo, melhor o modelo diferencia entre as duas classes (churn e não-churn). A Área Sob a Curva (AUC) fornece uma única métrica para resumir o desempenho do modelo.",
+            #             ]),
+            #             generate_static_roc_summary(metrics_test, 'teste'),
+            #             html.P("Selecione um modelo para visualizar as métricas, Matriz de Confusão e a Curva ROC (Teste):"),
+            #             dcc.Dropdown(
+            #                 id='model-selector-test',
+            #                 options=[{'label': name, 'value': name} for name in model_results.keys()],
+            #                 value='Classificador LGBM',
+            #                 clearable=False,
+            #             ),
+            #             html.Div(id='selected-test-metrics-summary'),
+            #             html.Div(id='selected-test-confusion-summary'),
+            #             dbc.Row([
+            #                 dbc.Col(dcc.Graph(id="test-confusion-matrix"), md=6),
+            #                 dbc.Col(dcc.Graph(id="test-roc-curve"), md=6),
+            #             ]),
+            #         ], className="p-4"
+            #     )
+            # ]),
             dbc.Tab(label="Desempenho do Modelo (Teste)", children=[
                 html.Div(
                     children=[
@@ -343,15 +482,45 @@ analyze_tab = html.Div(
                         html.P(
                             ["Testamos nossos principais modelos nos dados não vistos para garantir que não estão com ", html.B("overfitting"), " (memorizando os dados de treinamento em vez de aprender padrões gerais). O desempenho permaneceu alto, confirmando que os modelos são confiáveis e funcionarão bem em um cenário real."]
                         ),
+                        # Inserir o texto estático do melhor e pior modelo aqui
+                        generate_static_metrics_summary(metrics_test, 'teste'),
                         dbc.Row([dbc.Col(dcc.Graph(id="test-metrics-bar"), md=12)]),
-                        html.P(
-                            ["O desempenho nos dados de teste é semelhante ao dos dados de treinamento, confirmando que o ", html.B("Classificador LGBM"), " e o ", html.B("Classificador XGBoost"), " são excelentes escolhas para este problema. Suas altas pontuações de ", html.B("F1-Score"), " e ", html.B("ROC-AUC"), " em ambos os conjuntos de dados indicam uma capacidade preditiva forte e confiável."]
+                        html.Hr(),
+                        html.H5("Matriz de Confusão e Curva ROC", className="mt-4"),
+                        html.H6("Matriz de Confusão", className="mt-4"),
+                        html.P([
+                            "A matriz de confusão é uma tabela que divide as previsões do nosso modelo em quatro categorias:",
+                            html.Ul([
+                                html.Li([html.B("Verdadeiros Positivos (VP):"), " Clientes que o modelo previu corretamente que iriam cancelar."]),
+                                html.Li([html.B("Verdadeiros Negativos (VN):"), " Clientes que o modelo previu corretamente que não iriam cancelar."]),
+                                html.Li([html.B("Falsos Positivos (FP):"), " Clientes que o modelo previu incorretamente que iriam cancelar (Erro Tipo I). Isso pode levar a esforços de retenção desnecessários."]),
+                                html.Li([html.B("Falsos Negativos (FN):"), " Clientes que iriam cancelar, mas que o modelo não identificou (Erro Tipo II). Esta é a categoria mais custosa, pois representa a perda de um cliente."])
+                            ])
+                        ]),
+                        generate_static_confusion_summary(metrics_test, 'teste'),
+                        html.H6("Curva ROC (Receiver Operating Characteristic)", className="mt-4"),
+                        html.P([
+                            "A curva ROC plota a ",
+                            html.B("Taxa de Verdadeiros Positivos"),
+                            " em relação à ",
+                            html.B("Taxa de Falsos Positivos"),
+                            ". Quanto mais próxima a curva estiver do canto superior esquerdo, melhor o modelo diferencia entre as duas classes (churn e não-churn). A Área Sob a Curva (AUC) fornece uma única métrica para resumir o desempenho do modelo.",
+                        ]),
+                        generate_static_roc_summary(metrics_test, 'teste'),
+                        html.P("Selecione um modelo para visualizar as métricas, Matriz de Confusão e a Curva ROC (Teste):"),
+                        dcc.Dropdown(
+                            id='model-selector-test',
+                            options=[{'label': name, 'value': name} for name in model_results.keys()],
+                            value='Classificador LGBM',
+                            clearable=False,
                         ),
+                        html.Div(id='selected-test-metrics-summary'),
+                        html.Div(id='selected-test-confusion-summary'),
                         dbc.Row([
                             dbc.Col(dcc.Graph(id="test-confusion-matrix"), md=6),
                             dbc.Col(dcc.Graph(id="test-roc-curve"), md=6),
                         ]),
-                        html.P("O desempenho consistente desses modelos no conjunto de teste é uma descoberta chave. Sugere que um sistema preditivo pode ser construído para identificar clientes em risco de churn com alta confiança."),
+                        html.Div(id='selected-test-roc-summary'), # Este é o Div que faltava
                     ], className="p-4"
                 )
             ]),
@@ -404,16 +573,17 @@ def update_corr_matrix(dummy):
     fig.update_layout(title="Matriz de Correlação", height=500, margin=dict(t=50, b=50))
     return fig
 
+# Callback para os gráficos e texto de desempenho (treinamento)
 @app.callback(
     Output("train-metrics-bar", "figure"),
-    Output("test-metrics-bar", "figure"),
     Output("train-confusion-matrix", "figure"),
-    Output("test-confusion-matrix", "figure"),
     Output("train-roc-curve", "figure"),
-    Output("test-roc-curve", "figure"),
-    Input('feature-importance-model', 'value')
+    Output("selected-train-metrics-summary", "children"),
+    Output("selected-train-confusion-summary", "children"),
+    Output("selected-train-roc-summary", "children"),
+    Input('model-selector-train', 'value')
 )
-def update_model_performance(selected_model):
+def update_train_performance(selected_model):
     def get_bar_chart(df, title):
         fig = go.Figure()
         for metric in ['Acurácia', 'Revocação', 'Precisão', 'F1-Score', 'ROC-AUC', 'Kappa']:
@@ -433,32 +603,34 @@ def update_model_performance(selected_model):
         return fig
 
     train_bar_chart = get_bar_chart(metrics_train, "Métricas do Modelo (Dados de Treinamento)")
-    test_bar_chart = get_bar_chart(metrics_test, "Métricas do Modelo (Dados de Teste)")
-
+    
     model = model_results.get(selected_model, model_results['Classificador LGBM'])
-
     y_pred_train = model.predict(X_test)
     cm_train = confusion_matrix(y_test, y_pred_train)
+    
+    tn, fp, fn, tp = cm_train.ravel()
+    z_data_train = np.array([[tp, fn], [fp, tn]])
+    cm_text_train = np.array([[f'TP: {tp}', f'FN: {fn}'], [f'FP: {fp}', f'TN: {tn}']])
+    
     fig_cm_train = ff.create_annotated_heatmap(
-        z=cm_train, x=["Não Churn", "Churn"], y=["Não Churn", "Churn"],
-        colorscale='blues'
+        z=z_data_train,
+        x=["Previu Churn (1)", "Previu Não-Churn (0)"],
+        y=["Churn Real (1)", "Não-Churn Real (0)"],
+        annotation_text=cm_text_train,
+        colorscale='blues',
+        showscale=False
     )
+    fig_cm_train.update_yaxes(autorange='reversed')
     fig_cm_train.update_layout(title=f"Matriz de Confusão ({selected_model} no Treinamento)", height=450, margin=dict(t=50, b=50))
-
-    y_pred_test = model.predict(telcom_test[cols])
-    cm_test = confusion_matrix(telcom_test['Churn'], y_pred_test)
-    fig_cm_test = ff.create_annotated_heatmap(
-        z=cm_test, x=["Não Churn", "Churn"], y=["Não Churn", "Churn"],
-        colorscale='blues'
-    )
-    fig_cm_test.update_layout(title=f"Matriz de Confusão ({selected_model} no Teste)", height=450, margin=dict(t=50, b=50))
+    fig_cm_train.update_annotations(font_size=16)
 
     def get_roc_curve(model, X, y, title):
         if hasattr(model, "predict_proba"):
             probabilities = model.predict_proba(X)[:, 1]
             fpr, tpr, _ = roc_curve(y, probabilities)
+            roc_auc = auc(fpr, tpr)
             fig = go.Figure(data=[
-                go.Scatter(x=fpr, y=tpr, mode='lines', name='Curva ROC'),
+                go.Scatter(x=fpr, y=tpr, mode='lines', name=f'Curva ROC (AUC={roc_auc:.2f})'),
                 go.Scatter(x=[0, 1], y=[0, 1], mode='lines', line=dict(dash='dash'), name='Chute Aleatório')
             ])
             fig.update_layout(
@@ -468,21 +640,149 @@ def update_model_performance(selected_model):
                 height=450,
                 margin=dict(t=50, b=50)
             )
+            roc_summary = html.P([
+                "O ", html.B(selected_model), " obteve um ", html.B(f"AUC de {roc_auc:.2f}"), 
+                ". Uma pontuação de AUC próxima de 1.00 indica uma excelente capacidade de diferenciar entre as classes de churn e não-churn."
+            ])
         else:
             fig = go.Figure(go.Scatter())
             fig.update_layout(title=f"Curva ROC Não Disponível para {selected_model}", height=450, margin=dict(t=50, b=50))
-        return fig
+            roc_summary = html.P(f"A Curva ROC e a métrica AUC não estão disponíveis para o modelo {selected_model}.")
+        return fig, roc_summary
 
-    roc_train = get_roc_curve(model, X_test, y_test, f"Curva ROC ({selected_model} no Treinamento)")
-    roc_test = get_roc_curve(model, telcom_test[cols], telcom_test['Churn'], f"Curva ROC ({selected_model} no Teste)")
+    roc_train_fig, roc_train_summary = get_roc_curve(model, X_test, y_test, f"Curva ROC ({selected_model} no Treinamento)")
+    
+    # Textos de resumo dinâmicos para o modelo selecionado
+    selected_metrics_train = metrics_train[metrics_train['Modelo'] == selected_model].iloc[0]
+    metrics_summary_train = html.P([
+        "O modelo selecionado, ", html.B(selected_model), ", obteve os seguintes resultados: ",
+        html.B(f"Acurácia de {selected_metrics_train['Acurácia']}"), ", ",
+        html.B(f"Precisão de {selected_metrics_train['Precisão']}"), ", ",
+        html.B(f"Revocação de {selected_metrics_train['Revocação']}"), ", ",
+        html.B(f"F1-Score de {selected_metrics_train['F1-Score']}"), "."
+    ])
+
+    confusion_summary_train = html.P([
+        "Para o modelo selecionado, ", html.B(selected_model), ", a matriz de confusão mostrou: ",
+        html.B(f"{tp} Verdadeiros Positivos (VP)"), ", ",
+        html.B(f"{tn} Verdadeiros Negativos (VN)"), ", ",
+        html.B(f"{fp} Falsos Positivos (FP)"), " e ",
+        html.B(f"{fn} Falsos Negativos (FN)"), "."
+    ])
 
     return (
         train_bar_chart,
-        test_bar_chart,
         fig_cm_train,
+        roc_train_fig,
+        metrics_summary_train,
+        confusion_summary_train,
+        roc_train_summary
+    )
+
+# Novo callback para os gráficos e texto de desempenho (teste)
+@app.callback(
+    Output("test-metrics-bar", "figure"),
+    Output("test-confusion-matrix", "figure"),
+    Output("test-roc-curve", "figure"),
+    Output("selected-test-metrics-summary", "children"),
+    Output("selected-test-confusion-summary", "children"),
+    Output("selected-test-roc-summary", "children"),
+    Input('model-selector-test', 'value')
+)
+def update_test_performance(selected_model):
+    def get_bar_chart(df, title):
+        fig = go.Figure()
+        for metric in ['Acurácia', 'Revocação', 'Precisão', 'F1-Score', 'ROC-AUC', 'Kappa']:
+            fig.add_trace(go.Bar(
+                y=df["Modelo"],
+                x=df[metric],
+                orientation='h',
+                name=metric
+            ))
+        fig.update_layout(
+            barmode='group',
+            title=title,
+            height=450,
+            margin=dict(l=150, r=20, t=50, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        return fig
+
+    test_bar_chart = get_bar_chart(metrics_test, "Métricas do Modelo (Dados de Teste)")
+    
+    model = model_results.get(selected_model, model_results['Classificador LGBM'])
+    y_pred_test = model.predict(telcom_test[cols])
+    cm_test = confusion_matrix(telcom_test['Churn'], y_pred_test)
+
+    tn, fp, fn, tp = cm_test.ravel()
+    z_data_test = np.array([[tp, fn], [fp, tn]])
+    cm_text_test = np.array([[f'TP: {tp}', f'FN: {fn}'], [f'FP: {fp}', f'TN: {tn}']])
+    
+    fig_cm_test = ff.create_annotated_heatmap(
+        z=z_data_test,
+        x=["Previu Churn (1)", "Previu Não-Churn (0)"],
+        y=["Churn Real (1)", "Não-Churn Real (0)"],
+        annotation_text=cm_text_test,
+        colorscale='blues',
+        showscale=False
+    )
+    fig_cm_test.update_yaxes(autorange='reversed')
+    fig_cm_test.update_layout(title=f"Matriz de Confusão ({selected_model} no Teste)", height=450, margin=dict(t=50, b=50))
+    fig_cm_test.update_annotations(font_size=16)
+
+    def get_roc_curve(model, X, y, title):
+        if hasattr(model, "predict_proba"):
+            probabilities = model.predict_proba(X)[:, 1]
+            fpr, tpr, _ = roc_curve(y, probabilities)
+            roc_auc = auc(fpr, tpr)
+            fig = go.Figure(data=[
+                go.Scatter(x=fpr, y=tpr, mode='lines', name=f'Curva ROC (AUC={roc_auc:.2f})'),
+                go.Scatter(x=[0, 1], y=[0, 1], mode='lines', line=dict(dash='dash'), name='Chute Aleatório')
+            ])
+            fig.update_layout(
+                title=title,
+                xaxis_title="Taxa de Falso Positivo",
+                yaxis_title="Taxa de Verdadeiro Positivo",
+                height=450,
+                margin=dict(t=50, b=50)
+            )
+            roc_summary = html.P([
+                "O ", html.B(selected_model), " obteve um ", html.B(f"AUC de {roc_auc:.2f}"), 
+                ". Uma pontuação de AUC próxima de 1.00 indica uma excelente capacidade de diferenciar entre as classes de churn e não-churn."
+            ])
+        else:
+            fig = go.Figure(go.Scatter())
+            fig.update_layout(title=f"Curva ROC Não Disponível para {selected_model}", height=450, margin=dict(t=50, b=50))
+            roc_summary = html.P(f"A Curva ROC e a métrica AUC não estão disponíveis para o modelo {selected_model}.")
+        return fig, roc_summary
+    
+    roc_test_fig, roc_test_summary = get_roc_curve(model, telcom_test[cols], telcom_test['Churn'], f"Curva ROC ({selected_model} no Teste)")
+    
+    # Textos de resumo dinâmicos para o modelo selecionado
+    selected_metrics_test = metrics_test[metrics_test['Modelo'] == selected_model].iloc[0]
+    metrics_summary_test = html.P([
+        "O modelo selecionado, ", html.B(selected_model), ", obteve os seguintes resultados: ",
+        html.B(f"Acurácia de {selected_metrics_test['Acurácia']}"), ", ",
+        html.B(f"Precisão de {selected_metrics_test['Precisão']}"), ", ",
+        html.B(f"Revocação de {selected_metrics_test['Revocação']}"), ", ",
+        html.B(f"F1-Score de {selected_metrics_test['F1-Score']}"), "."
+    ])
+    
+    confusion_summary_test = html.P([
+        "Para o modelo selecionado, ", html.B(selected_model), ", a matriz de confusão mostrou: ",
+        html.B(f"{tp} Verdadeiros Positivos (VP)"), ", ",
+        html.B(f"{tn} Verdadeiros Negativos (VN)"), ", ",
+        html.B(f"{fp} Falsos Positivos (FP)"), " e ",
+        html.B(f"{fn} Falsos Negativos (FN)"), "."
+    ])
+
+    return (
+        test_bar_chart,
         fig_cm_test,
-        roc_train,
-        roc_test,
+        roc_test_fig,
+        metrics_summary_test,
+        confusion_summary_test,
+        roc_test_summary
     )
 
 @app.callback(
