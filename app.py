@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.figure_factory as ff
-from dash import Dash, dcc, html, Input, Output
+from dash import Dash, dcc, html, Input, Output, dash_table
 import dash_bootstrap_components as dbc
 import joblib
 import os
@@ -52,8 +52,8 @@ except FileNotFoundError:
     exit()
 
 # Carregar os dados brutos e aplicar o pré-processamento salvo
-telcom = pd.read_csv('dataset/churn-bigml-80.csv')
-telcom_test = pd.read_csv('dataset/churn-bigml-20.csv')
+telcom_raw = pd.read_csv('dataset/churn-bigml-80.csv')
+telcom_test_raw = pd.read_csv('dataset/churn-bigml-20.csv')
 
 def preprocess_data_for_app(df):
     """Aplica as transformações salvas nos dados brutos."""
@@ -71,8 +71,8 @@ def preprocess_data_for_app(df):
     df[num_cols] = std.transform(df[num_cols])
     return df
 
-telcom = preprocess_data_for_app(telcom)
-telcom_test = preprocess_data_for_app(telcom_test)
+telcom = preprocess_data_for_app(telcom_raw)
+telcom_test = preprocess_data_for_app(telcom_test_raw)
 
 # Separar os dados para avaliação
 y_test = telcom[['Churn']]
@@ -209,6 +209,15 @@ ask_tab = dcc.Markdown(
 )
 
 # 2. Aba PREPARE
+# Para a tabela de dados, vamos definir explicitamente os tipos de colunas para permitir a filtragem numérica
+columns_with_types = []
+for col in telcom_raw.columns:
+    col_type = telcom_raw[col].dtype
+    if pd.api.types.is_numeric_dtype(col_type):
+        columns_with_types.append({"name": col, "id": col, "type": "numeric"})
+    else:
+        columns_with_types.append({"name": col, "id": col})
+
 prepare_tab = html.Div(
     children=[
         html.H4(
@@ -250,6 +259,30 @@ prepare_tab = html.Div(
                 ),
             ]
         ),
+        # Adiciona a tabela de amostra do dataset
+        html.H5("Amostra do Dataset Original (Primeiras 10 Linhas)", className="mt-4"),
+        dash_table.DataTable(
+            id='sample-table',
+            columns=columns_with_types, # Usa a nova lista de colunas com tipos definidos
+            data=telcom_raw.head(10).to_dict('records'),
+            sort_action="native",
+            filter_action="native",
+            page_action="none",
+            style_table={'overflowX': 'auto', 'width': '100%'},
+            style_header={
+                'backgroundColor': 'rgb(230, 230, 230)',
+                'fontWeight': 'bold',
+                'textAlign': 'center',
+            },
+            style_cell={
+                'textAlign': 'left',
+                'padding': '5px',
+                'font-size': '12px',
+                'minWidth': '80px', 'width': 'auto', 'maxWidth': '150px',
+                'overflow': 'hidden',
+                'textOverflow': 'ellipsis',
+            },
+        ),
         html.H4("Resumo Estatístico", className="mt-4"),
         html.P("Esta tabela fornece uma visão geral estatística rápida das características. Note a relação linear perfeita entre minutos e cobranças para diferentes tipos de chamada. Para evitar multicolinearidade em nossos modelos, removemos as colunas relacionadas a cobranças."),
         dbc.Table.from_dataframe(telcom.describe().T.reset_index().rename(columns={'index': 'característica'}).round(2),
@@ -287,13 +320,13 @@ analyze_tab = html.Div(
                         ]),
                         dbc.Row([
                             dbc.Col(dcc.Graph(id="churn-pie-chart",
-                                            figure=go.Figure(
-                                                data=[go.Pie(labels=telcom["Churn"].value_counts().keys().tolist(),
-                                                                values=telcom["Churn"].value_counts().values.tolist(),
-                                                                marker=dict(colors=['#1f77b4', '#ff7f0e'], line=dict(color="white", width=1.3)),
-                                                                hoverinfo="label+percent", hole=0.5)],
-                                                layout=go.Layout(title="Distribuição de Churn de Clientes", height=400, margin=dict(t=50, b=50))
-                                            )), md=6),
+                                             figure=go.Figure(
+                                                 data=[go.Pie(labels=telcom["Churn"].value_counts().keys().tolist(),
+                                                              values=telcom["Churn"].value_counts().values.tolist(),
+                                                              marker=dict(colors=['#1f77b4', '#ff7f0e'], line=dict(color="white", width=1.3)),
+                                                              hoverinfo="label+percent", hole=0.5)],
+                                                 layout=go.Layout(title="Distribuição de Churn de Clientes", height=400, margin=dict(t=50, b=50))
+                                             )), md=6),
                             dbc.Col(dcc.Graph(id="correlation-matrix"), md=6),
                         ]),
                         html.P([
@@ -354,11 +387,11 @@ analyze_tab = html.Div(
                                 id="day-eve-minutes-plot",
                                 figure=go.Figure(
                                     data=go.Scatter(x=telcom['Total day minutes'], y=telcom['Total eve minutes'],
-                                                    mode='markers', marker_color=telcom['Churn'], showlegend=False),
+                                                     mode='markers', marker_color=telcom['Churn'], showlegend=False),
                                     layout=go.Layout(title="Total de Minutos Diurnos vs. Total de Minutos Noturnos",
-                                                    xaxis_title="Total de Minutos Diurnos (Escalado)",
-                                                    yaxis_title="Total de Minutos Noturnos (Escalado)",
-                                                    height=400, margin=dict(t=50, b=50))
+                                                     xaxis_title="Total de Minutos Diurnos (Escalado)",
+                                                     yaxis_title="Total de Minutos Noturnos (Escalado)",
+                                                     height=400, margin=dict(t=50, b=50))
                                 ))),
                         ]),
                     ], className="p-4"
@@ -432,50 +465,6 @@ analyze_tab = html.Div(
                     ], className="p-4"
                 )
             ]),
-            # dbc.Tab(label="Desempenho do Modelo (Teste)", children=[
-            #     html.Div(
-            #         children=[
-            #             html.H5("Desempenho do Modelo nos Dados de Teste", className="mt-4"),
-            #             html.P(
-            #                 ["Testamos nossos principais modelos nos dados não vistos para garantir que não estão com ", html.B("overfitting"), " (memorizando os dados de treinamento em vez de aprender padrões gerais). O desempenho permaneceu alto, confirmando que os modelos são confiáveis e funcionarão bem em um cenário real."]
-            #             ),
-            #             generate_static_metrics_summary(metrics_test, 'teste'),
-            #             dbc.Row([dbc.Col(dcc.Graph(id="test-metrics-bar"), md=12)]),
-            #             html.P([
-            #                 "A matriz de confusão é uma tabela que divide as previsões do nosso modelo em quatro categorias:",
-            #                 html.Ul([
-            #                     html.Li([html.B("Verdadeiros Positivos (VP):"), " Clientes que o modelo previu corretamente que iriam cancelar."]),
-            #                     html.Li([html.B("Verdadeiros Negativos (VN):"), " Clientes que o modelo previu corretamente que não iriam cancelar."]),
-            #                     html.Li([html.B("Falsos Positivos (FP):"), " Clientes que o modelo previu incorretamente que iriam cancelar (Erro Tipo I). Isso pode levar a esforços de retenção desnecessários."]),
-            #                     html.Li([html.B("Falsos Negativos (FN):"), " Clientes que iriam cancelar, mas que o modelo não identificou (Erro Tipo II). Esta é a categoria mais custosa, pois representa a perda de um cliente."])
-            #                 ])
-            #             ]),
-            #             generate_static_confusion_summary(metrics_test, 'teste'),
-            #             html.H6("Curva ROC (Receiver Operating Characteristic)", className="mt-4"),
-            #             html.P([
-            #                 "A curva ROC plota a ",
-            #                 html.B("Taxa de Verdadeiros Positivos"),
-            #                 " em relação à ",
-            #                 html.B("Taxa de Falsos Positivos"),
-            #                 ". Quanto mais próxima a curva estiver do canto superior esquerdo, melhor o modelo diferencia entre as duas classes (churn e não-churn). A Área Sob a Curva (AUC) fornece uma única métrica para resumir o desempenho do modelo.",
-            #             ]),
-            #             generate_static_roc_summary(metrics_test, 'teste'),
-            #             html.P("Selecione um modelo para visualizar as métricas, Matriz de Confusão e a Curva ROC (Teste):"),
-            #             dcc.Dropdown(
-            #                 id='model-selector-test',
-            #                 options=[{'label': name, 'value': name} for name in model_results.keys()],
-            #                 value='Classificador LGBM',
-            #                 clearable=False,
-            #             ),
-            #             html.Div(id='selected-test-metrics-summary'),
-            #             html.Div(id='selected-test-confusion-summary'),
-            #             dbc.Row([
-            #                 dbc.Col(dcc.Graph(id="test-confusion-matrix"), md=6),
-            #                 dbc.Col(dcc.Graph(id="test-roc-curve"), md=6),
-            #             ]),
-            #         ], className="p-4"
-            #     )
-            # ]),
             dbc.Tab(label="Desempenho do Modelo (Teste)", children=[
                 html.Div(
                     children=[
