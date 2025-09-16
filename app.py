@@ -152,9 +152,10 @@ def generate_static_confusion_summary(df, data_type):
     return html.P([
         "Uma análise detalhada da matriz de confusão para o modelo de melhor desempenho, ",
         html.B(best_models_acc.loc[0, 'Modelo']), f" (acurácia de {best_models_acc.loc[0, 'Acurácia']}), revela sua capacidade de prever com precisão. ",
-        f"Ele identificou corretamente ", html.B(f"{tp} Verdadeiros Positivos"),
-        " e ", html.B(f"{tn} Verdadeiros Negativos"), ", enquanto o número de erros (falsos positivos e negativos) foi minimizado. ",
-        "Isso demonstra um equilíbrio ideal entre capturar o churn e evitar falsos alarmes."
+        f"O modelo identificou corretamente ", html.B(f"{tp} Verdadeiros Positivos"),
+        " e ", html.B(f"{tn} Verdadeiros Negativos"), ", enquanto os erros foram minimizados, com apenas ",
+        html.B(f"{fp} Falsos Positivos"), " e ", html.B(f"{fn} Falsos Negativos"),
+        ". Isso demonstra um equilíbrio ideal entre capturar o churn e evitar falsos alarmes."
     ])
 
 def generate_static_roc_summary(df, data_type):
